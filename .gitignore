@@ -3,6 +3,10 @@ compile_commands.json
 *.o
 *~
 
+# netnomad
+.commit_msg
+*-journal
+
 # vim session
 .*.swp*
 .swp*
