@@ -4,8 +4,9 @@ compile_commands.json
 *~
 
 # netnomad
-.commit_msg
+*commit_msg
 *-journal
+!netnomad/*
 
 # vim session
 .*.swp*
