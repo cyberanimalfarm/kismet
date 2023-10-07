@@ -927,9 +927,16 @@ void kis_external_interface::handle_packet_http_register(uint32_t in_seqno,
                     auto sess_id = http_session_id++;
                     http_proxy_session_map[sess_id] = session;
 
+		    
                     auto var_remap = std::map<std::string, std::string>();
-                    for (const auto& v : con->http_variables())
-                        var_remap[v.first] = v.second;
+                    for (const auto& v : con->http_variables()) {
+						var_remap[v.first] = v.second;
+					}
+                    if (var_remap.size() == 0) {
+                        for (const auto &v : con->json().items()) {
+                            var_remap[v.key()] = v.value().dump();
+                        }
+                    }
 
                     send_http_request(sess_id, static_cast<std::string>(con->uri()), 
                             fmt::format("{}", con->verb()), var_remap);
@@ -1036,6 +1043,7 @@ unsigned int kis_external_interface::send_http_request(uint32_t in_http_sequence
         KismetExternalHttp::SubHttpVariableData *pd = r.add_variable_data();
         pd->set_field(pi.first);
         pd->set_content(pi.second);
+		std::cout << pi.first << ": " << pi.second << std::endl;
     }
 
     if (protocol_version == 0) {

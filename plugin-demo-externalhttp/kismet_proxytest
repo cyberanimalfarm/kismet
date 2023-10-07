@@ -39,7 +39,7 @@ class KismetProxyTest(object):
         print("ProxyTest loaded KismetExternal {}".format(kismetexternal.__version__))
 
         # Initialize our external interface
-        self.kei = kismetexternal.ExternalInterface(self.results.infd, self.results.outfd)
+        self.kei = kismetexternal.ExternalInterface(self.results)
 
         # self.kei.debug = True
 

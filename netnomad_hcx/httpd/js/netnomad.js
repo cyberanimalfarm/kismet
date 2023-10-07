@@ -5,6 +5,12 @@ var local_uri_prefix = "";
 if (typeof (KISMET_URI_PREFIX) !== 'undefined')
     local_uri_prefix = KISMET_URI_PREFIX;
 
+
+// COLORS
+const green = "#007700";
+const yellow = "#DDD115";
+const red = "#FA6741";
+
 // CONNECTIONS
 const hcx_interface = "wlan_0";
 
@@ -22,9 +28,33 @@ const uri_nn_hcx = `${host}:2501/netnomad/hcx`;
 var ws_eb = new WebSocket(`ws://${host}:2501/eventbus/events.ws?user=${user}&password=${pass}`);
 ws_eb.onopen = function(event) {
     ws_eb.send(JSON.stringify({"SUBSCRIBE": "NETNOMAD"}));
+    console.log("Subscribed to NetNomad Events.");
  }
 ws_eb.onmessage = function(msg_json) {
-    var msg = JSON.parse(msg.data);
+    const msg_raw = JSON.parse(msg_json.data)['kismet.eventbus.event_json'];
+    const msg = JSON.parse(msg_raw.replace(/\\"/g, ''));
+    console.log(`Server Response: ${JSON.stringify(msg)}`);
+    //console.log(`- Remove ": ${JSON.stringify(msg)}`);
+    
+    // Update Row Status
+    if (msg['status'] == "WORKING") {
+        console.log(`Working on ${msg['bssid']}...`);
+        $(`#nn_hcx_stat_${msg['bssid']}`)
+            .css("background-color", `${yellow}`)
+            .text(`${msg['status']}`);
+    }
+    else if (msg['status'] == "READY") {
+        console.log(`${msg['bssid']} is Ready.`);
+        $(`#nn_hcx_stat_${msg['bssid']}`)
+            .css("background-color", `${green}`)
+            .text(`${msg['status']}`);
+    }
+    else {
+        console.log(`There's an error with ${msg['bssid']}!`);
+        $(`#nn_hcx_stat_${msg['bssid']}`)
+            .css("background-color", `${red}`)
+            .text(`ERROR`);
+    }
     
 }
 
@@ -32,10 +62,10 @@ ws_eb.onmessage = function(msg_json) {
 /// Parse the full JSON from a row into pertinent, simply named elements.
 function parseDevData(dev_data) {
     // const dev_data = JSON.parse(row_json);
+    const dev_bssid = dev_data['dot11.device.last_bssid'];
     const dev_type = dev_data['kismet.device.base.type'];
     const dev_name = dev_data['kismet.device.base.commonname'];
     const dev_ch = dev_data['kismet.device.base.channel'];
-    const dev_bssid = dev_data['dot11.device.last_bssid'];
 
     return { dev_type, dev_name, dev_ch, dev_bssid };
 }
@@ -124,8 +154,10 @@ function valueProtoToJson(proto) {
   }
 }
 
-// BUTTON INTERACTION
-/// Build the button with a custom callback from its row data.
+// ROW INTERACTION
+/// Build the row with: 
+/// - A button with a custom callback from its row data.
+/// - A status indicator for interactions.
 function buildRowBtn(row) {
     return `
         <button 
@@ -142,13 +174,13 @@ function buildRowBtn(row) {
                 width: 20%;
                 height: 75%;
                 border-radius: 5%;
-                background-color: #007700;
+                background-color: ${green};
                 padding: 10px;
                 display: inline-block;
                 text-align: center;
             "
         >
-            STATUS
+            READY
         </div>
     `;
 }
@@ -165,28 +197,28 @@ export async function sendRowJSON(event, row_json) {
 
     // Get the Device Data
     const dev_data = JSON.parse(row_json);
+    const { dev_type, dev_name, dev_ch, dev_bssid } = dev_data;
+    
+    // Update Row Status
+    $(`#nn_hcx_stat_${dev_bssid}`)
+        .css("background-color", `${yellow}`)
+        .text("REQUESTING");
 
     // Send to backend
     var tab_msg = "";
     try {
         const response = await fetch(`http://${uri_nn_hcx}`, {
             method: 'POST',
-            headers: { "Content-Type": "application/x-protobuf" },
-            body: jsonToStructProto(dev_data),
+            headers: { 
+                "Content-Type": "application/json",
+                "Content-Length": row_json.length.toString()
+            },
+            body: row_json,
         });
         tab_msg = await response.text();
     }
     catch (error) { tab_msg = `There was an error during the Interaction:\n\n${error}`; }
-    //try {
-    //    const response = await fetch(`http://${uri_nn_hcx}?${jsonToQueryString(row_json)}`, {
-    //        method: 'GET',
-    //        headers: { "Content-Type": "application/json" },
-    //    });
-    //    tab_msg = await response.text();
-    //}
-    //catch (error) { tab_msg = `There was an error during the Interaction:\n\n${error}`; }
 
-    const { dev_type, dev_name, dev_ch, dev_bssid } = dev_data;
 
     // Write to the Tab
     $('#NetNomadTab').html(`
