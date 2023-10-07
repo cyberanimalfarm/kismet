@@ -11,6 +11,7 @@ import os
 import time
 import sys
 import threading
+import json
 
 # Pretty-print the failure
 try:
@@ -49,16 +50,17 @@ class KismetProxyTest(object):
         # connected to send them!
         self.kei.start()
 
+        # Get an API Token (possibly unneeded)
         self.kei.request_http_auth(self.handle_web_auth_token)
         
         # Register a URI handler to handle events from the NetNomad frontend.
         self.hcx_uri = "/netnomad/hcx"
         self.kei.add_uri_handler("POST", self.hcx_uri, self.handle_hcx_interact)
+        # self.kei.add_uri_handler("GET", self.hcx_uri, self.handle_hcx_interact)
+
 
         # Register an event handler for all events
-        # self.kei.add_event_handler("*", self.handle_event)        
-
-        self.kei.debug = True
+        self.kei.add_event_handler("*", self.handle_event)        
 
         # Start the IO loops running
         self.kei.run()
@@ -68,18 +70,26 @@ class KismetProxyTest(object):
         print("NN: NetNomad got HTTP auth token", self.kei.auth_token)
 
     def handle_event(self, event, dictionary):
-        #print("Eventbus got {}".format(event))
+        #print(f"NN: Event - {event}")
         pass
 
     def handle_hcx_interact(self, handler, request):
-        print(f"NN: NetNomad got {request.uri}")
+        print(f"NN: Request - {request.uri}\n{request}")
+        
+        print(f"NN: Request Data:\n")
+        for i in request.variable_data:
+            print(f"- {i.field}: {i.content}")
+        # resp_data = {
+        #     "bssid": event_data["dev_bssid"]
+        # }
+        # self.kei.publish_event("NETNOMAD", "")
         handler.send_http_response(request.req_id, bytes("Working an HCX interaction!", "UTF-8"))
 
     # Loop forever
     def loop(self):
         while self.kei.is_running():
             self.kei.send_ping()
-            time.sleep(1)
+            time.sleep(0.5)
 
         self.kei.kill()
 
