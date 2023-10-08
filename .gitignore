@@ -3,11 +3,6 @@ compile_commands.json
 *.o
 *~
 
-# netnomad
-*commit_msg
-*-journal
-!netnomad/*
-
 # vim session
 .*.swp*
 .swp*
@@ -115,4 +110,8 @@ packaging/systemd/kismet.service
 
 # Packages
 *.deb
+
+# netnomad
+*commit_msg
+*-journal
 

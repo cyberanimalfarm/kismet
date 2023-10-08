@@ -60,7 +60,7 @@ class KismetProxyTest(object):
 
 
         # Register an event handler for all events
-        self.kei.add_event_handler("*", self.handle_event)        
+        # self.kei.add_event_handler("*", self.handle_event)        
 
         # Start the IO loops running
         self.kei.run()
@@ -74,25 +74,23 @@ class KismetProxyTest(object):
         pass
 
     def handle_hcx_interact(self, handler, request):
-        print(f"NN: Request Data - {request.uri}:\n")
+        print(f"NN: Request Received - {request.uri}\n")
         req_data = request.variable_data
-        for i in req_data:
-            print(f"- {i.field}: {i.content}")
         handler.send_http_response(request.req_id, bytes(f"Working an HCX interaction!", "UTF-8"))
-        working = { "status": "WORKING", "bssid": req_data[0].content }
-        self.kei.publish_event("NETNOMAD", json.dumps(working));
+        working = { "bssid": req_data[0].content, "status": "WORKING" }
+        self.kei.publish_event("NETNOMAD", json.dumps(working))
         # Notional work time for interaction
-        time.sleep(3);
-        ready = { "status": "READY", "bssid": req_data[0].content }
-        self.kei.publish_event("NETNOMAD", json.dumps(ready));
+        time.sleep(3)
+        ready = { "bssid": req_data[0].content, "status": "READY" }
+        self.kei.publish_event("NETNOMAD", json.dumps(ready))
 
     # Loop forever
-    def loop(self):
-        while self.kei.is_running():
-            self.kei.send_ping()
-            time.sleep(1)
+    #def loop(self):
+    #    while self.kei.is_running():
+    #        self.kei.send_ping()
+    #        time.sleep(5)
 
-        self.kei.kill()
+    #    self.kei.kill()
 
 
 if __name__ == "__main__":
@@ -100,4 +98,4 @@ if __name__ == "__main__":
     pt = KismetProxyTest()
 
     # Loop in a detached process
-    pt.loop()
+    # pt.loop()

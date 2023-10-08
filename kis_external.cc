@@ -927,11 +927,12 @@ void kis_external_interface::handle_packet_http_register(uint32_t in_seqno,
                     auto sess_id = http_session_id++;
                     http_proxy_session_map[sess_id] = session;
 
-		    
+                    // HTTP URL Encoded Variables Return
                     auto var_remap = std::map<std::string, std::string>();
                     for (const auto& v : con->http_variables()) {
 						var_remap[v.first] = v.second;
 					}
+                    // JSON Fields Return
                     if (var_remap.size() == 0) {
                         for (const auto &v : con->json().items()) {
                             var_remap[v.key()] = v.value().dump();
@@ -1043,7 +1044,7 @@ unsigned int kis_external_interface::send_http_request(uint32_t in_http_sequence
         KismetExternalHttp::SubHttpVariableData *pd = r.add_variable_data();
         pd->set_field(pi.first);
         pd->set_content(pi.second);
-		std::cout << pi.first << ": " << pi.second << std::endl;
+        // _MSG_DEBUG("KEI C++ - {}: {}", pi.first, pi.second);
     }
 
     if (protocol_version == 0) {

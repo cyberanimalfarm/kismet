@@ -10,58 +10,87 @@ if (typeof (KISMET_URI_PREFIX) !== 'undefined')
 const green = "#007700";
 const yellow = "#DDD115";
 const red = "#FA6741";
+const blue = "#54A0F8";
+
+// DEVICE STATES
+var dev_states = {};
+const state_map = {
+    READY: green,
+    REQUESTING: yellow,
+    WORKING: yellow,
+    ERROR: red,
+};
 
 // CONNECTIONS
 const hcx_interface = "wlan_0";
 
+// Assuming we're not too concerned about these being hardcoded?
 const user = "netnomad";
 const pass = "123qwe";
+// TODO: Allow this to be configurable by NetNomad users in settings
 const host = "192.168.1.112";
-//const host = "localhost" // TODO: Allow this to be configurable by NetNomad users in settings
+const port = 2501;
 
 /// NetNomad Backend
 /// Connect to the NetNomad Backend to send Device Data.
-const uri_nn_hcx = `${host}:2501/netnomad/hcx`;
+const uri_nn_hcx = `${host}:${port}/netnomad/hcx`;
 
 /// Kismet Backend
-/// Connect to the Kismet Backent to receive Events.
-var ws_eb = new WebSocket(`ws://${host}:2501/eventbus/events.ws?user=${user}&password=${pass}`);
-ws_eb.onopen = function(event) {
-    ws_eb.send(JSON.stringify({"SUBSCRIBE": "NETNOMAD"}));
+/// Connect to the Kismet Backent to receive NetNomad Events.
+var ws_nn_eb = new WebSocket(`ws://${host}:${port}/eventbus/events.ws?user=${user}&password=${pass}`);
+ws_nn_eb.onopen = function (event) {
+    ws_nn_eb.send(JSON.stringify({ "SUBSCRIBE": "NETNOMAD" }));
     console.log("Subscribed to NetNomad Events.");
- }
-ws_eb.onmessage = function(msg_json) {
+}
+ws_nn_eb.onmessage = function (msg_json) {
     const msg_raw = JSON.parse(msg_json.data)['kismet.eventbus.event_json'];
     const msg = JSON.parse(msg_raw.replace(/\\"/g, ''));
-    console.log(`Server Response: ${JSON.stringify(msg)}`);
-    //console.log(`- Remove ": ${JSON.stringify(msg)}`);
-    
-    // Update Row Status
-    if (msg['status'] == "WORKING") {
-        console.log(`Working on ${msg['bssid']}...`);
-        $(`#nn_hcx_stat_${msg['bssid']}`)
-            .css("background-color", `${yellow}`)
-            .text(`${msg['status']}`);
+    console.log(`NetNomad Backend: ${JSON.stringify(msg)}`);
+
+    // Update Device Status
+    dev_states[msg['bssid']] = {
+        status: msg['status'],
+        color: state_map[msg['status']]
+    };
+}
+
+/// Pull Usable Interfaces.
+async function pullDataSources() {
+    var data_sources = {};
+    try {
+        const response = await fetch(`http://${host}:${port}/datasource/all_sources.json`, {
+            method: 'GET',
+            headers: {
+                "Content-Type": "application/json",
+            },
+        });
+        if (!response.ok) {
+            console.error("There was an HTTP error while pulling the interface data.");
+            return data_sources;
+        }
+        const if_data = await response.json();
+        //console.debug(`Interface Data: ${JSON.stringify(if_data)}`);
+        if_data.forEach(function(element) {
+            console.debug(`Checking IF: ${element['kismet.datasource.uuid']}`)
+            if (
+                !element['kismet.datasource.type_driver']['kismet.datasource.driver.type'].includes("wifi") //||
+                //element['kismet.datasource.running'] == 1
+            ) return;
+            console.debug(`Adding IF: ${element['kismet.datasource.uuid']}`)
+            data_sources[element['kismet.datasource.uuid']] = {
+                name: element['kismet.datasource.name'],
+                channels: element['kismet.datasource.channels']
+            };
+        });
+        console.debug(`Interface Data: ${JSON.stringify(data_sources)}`);
     }
-    else if (msg['status'] == "READY") {
-        console.log(`${msg['bssid']} is Ready.`);
-        $(`#nn_hcx_stat_${msg['bssid']}`)
-            .css("background-color", `${green}`)
-            .text(`${msg['status']}`);
-    }
-    else {
-        console.log(`There's an error with ${msg['bssid']}!`);
-        $(`#nn_hcx_stat_${msg['bssid']}`)
-            .css("background-color", `${red}`)
-            .text(`ERROR`);
-    }
-    
+    catch (error) { console.error(`There was an error pulling the interface data: ${error}`) }
+    return data_sources;
 }
 
 // HELPER FUNCTIONS
 /// Parse the full JSON from a row into pertinent, simply named elements.
 function parseDevData(dev_data) {
-    // const dev_data = JSON.parse(row_json);
     const dev_bssid = dev_data['dot11.device.last_bssid'];
     const dev_type = dev_data['kismet.device.base.type'];
     const dev_name = dev_data['kismet.device.base.commonname'];
@@ -73,102 +102,47 @@ function parseDevData(dev_data) {
 /// Convert 1D JSON to a query string.
 function jsonToQueryString(json) {
     return Object.keys(json)
-      .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(json[key]))
-      .join('&');
-  }
+        .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(json[key]))
+        .join('&');
+}
 
-// - JSON TO/FROM PROTOBUF (From Google)
-function jsonToStructProto(json) {
-    const fields = {};
-    for (let k in json) {
-      fields[k] = jsonValueToProto(json[k]);
-    }
+/// Timestamp
+function timeStamp() {
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
   
-    return {fields};
-  }
-
-const JSON_SIMPLE_TYPE_TO_PROTO_KIND_MAP = {
-  [typeof 0]: 'numberValue',
-  [typeof '']: 'stringValue',
-  [typeof false]: 'boolValue',
-};
-
-const JSON_SIMPLE_VALUE_KINDS = new Set([
-  'numberValue',
-  'stringValue',
-  'boolValue',
-]);
-
-function jsonValueToProto(value) {
-  const valueProto = {};
-
-  if (value === null) {
-    valueProto.kind = 'nullValue';
-    valueProto.nullValue = 'NULL_VALUE';
-  } else if (value instanceof Array) {
-    valueProto.kind = 'listValue';
-    valueProto.listValue = {values: value.map(jsonValueToProto)};
-  } else if (typeof value === 'object') {
-    valueProto.kind = 'structValue';
-    valueProto.structValue = jsonToStructProto(value);
-  } else if (typeof value in JSON_SIMPLE_TYPE_TO_PROTO_KIND_MAP) {
-    const kind = JSON_SIMPLE_TYPE_TO_PROTO_KIND_MAP[typeof value];
-    valueProto.kind = kind;
-    valueProto[kind] = value;
-  } else {
-    console.warn('Unsupported value type ', typeof value);
-  }
-  return valueProto;
+    return `${hours}:${minutes}:${seconds}`;
 }
 
-function structProtoToJson(proto) {
-  if (!proto || !proto.fields) {
-    return {};
-  }
-  const json = {};
-  for (const k in proto.fields) {
-    json[k] = valueProtoToJson(proto.fields[k]);
-  }
-  return json;
-}
-
-function valueProtoToJson(proto) {
-  if (!proto || !proto.kind) {
-    return null;
-  }
-
-  if (JSON_SIMPLE_VALUE_KINDS.has(proto.kind)) {
-    return proto[proto.kind];
-  } else if (proto.kind === 'nullValue') {
-    return null;
-  } else if (proto.kind === 'listValue') {
-    if (!proto.listValue || !proto.listValue.values) {
-      console.warn('Invalid JSON list value proto: ', JSON.stringify(proto));
-    }
-    return proto.listValue.values.map(valueProtoToJson);
-  } else if (proto.kind === 'structValue') {
-    return structProtoToJson(proto.structValue);
-  } else {
-    console.warn('Unsupported JSON value proto kind: ', proto.kind);
-    return null;
-  }
-}
 
 // ROW INTERACTION
+/// Wrapper for `buildDevRow()` to be called by Kismet API for renderfunc
+function renderRows(data, type, row, meta) {
+    return buildDevRow(parseDevData(row));
+    //return updDevRow(parseDevData(row));
+}
+/// Wrapper for `buildDevRow()` to be called by Kismet API for drawfunc
+function drawRows(dyncolumn, table, row) {
+    return buildDevRow(parseDevData(row));
+}
 /// Build the row with: 
 /// - A button with a custom callback from its row data.
 /// - A status indicator for interactions.
-function buildRowBtn(row) {
-    return `
+function buildDevRow(row) {
+    const { dev_type, dev_name, dev_ch, dev_bssid } = row;
+    var dev_row = $('<div>') 
+    dev_row.append(`
         <button 
-            id='nn_hcx_btn_${row.dev_bssid}'
+            id='nn_hcx_btn_${dev_bssid}'
             class='NN_HCX_INTERACT_BUTTON' 
             onclick='netnomad.sendRowJSON(event, "${JSON.stringify(row).replace(/"/g, '\\"')}")'
         >
             HCX Interact
         </button>
         <div 
-            id='nn_hcx_stat_${row.dev_bssid}'
+            id='nn_hcx_stat_${dev_bssid}'
             class='NN_HCX_INTERACT_STATUS'
             style="
                 width: 20%;
@@ -182,7 +156,17 @@ function buildRowBtn(row) {
         >
             READY
         </div>
-    `;
+    `);
+
+    if (dev_bssid in dev_states) {
+        console.debug(`Device w/ Status: ${dev_bssid}`);
+        const dev_state = dev_states[dev_bssid];
+        dev_row.find(`.NN_HCX_INTERACT_STATUS`)
+            .css("background-color", `${dev_state['color']}`)
+            .text(`${dev_state['status']}`);
+    } 
+
+    return dev_row.html();
 }
 
 /// Send row data (as JSON) to the NetNomad backend and write it to the Tab.
@@ -198,18 +182,19 @@ export async function sendRowJSON(event, row_json) {
     // Get the Device Data
     const dev_data = JSON.parse(row_json);
     const { dev_type, dev_name, dev_ch, dev_bssid } = dev_data;
-    
-    // Update Row Status
-    $(`#nn_hcx_stat_${dev_bssid}`)
-        .css("background-color", `${yellow}`)
-        .text("REQUESTING");
+
+    // Update Device Status
+    dev_states[dev_bssid] = {
+        status: "REQUESTING",
+        color: state_map['REQUESTING']
+    };
 
     // Send to backend
     var tab_msg = "";
     try {
         const response = await fetch(`http://${uri_nn_hcx}`, {
             method: 'POST',
-            headers: { 
+            headers: {
                 "Content-Type": "application/json",
                 "Content-Length": row_json.length.toString()
             },
@@ -221,15 +206,13 @@ export async function sendRowJSON(event, row_json) {
 
 
     // Write to the Tab
-    $('#NetNomadTab').html(`
+    writeToTab(`
         <div>
-            DEVICE DATA: (WIP)
-            <br><br>
+            DEVICE DATA:<br>
             <b> - Type:</b> ${dev_type} <br>
             <b> - Name:</b> ${dev_name} <br>
             <b> - Ch:</b> ${dev_ch} <br>
             <b> - BSSID:</b> ${dev_bssid} <br>
-            <br><br>
             ${tab_msg}
         </div>
     `);
@@ -240,61 +223,50 @@ export async function sendRowJSON(event, row_json) {
     // Re-enable button
     event.target.disabled = false;
     event.target.textContent = btn_text;
-    
+
     console.log(`NetNomad Interaction!`);
 }
-
-function renderButtons(data, type, row, meta) {
-    return buildRowBtn(parseDevData(row));
-}
-
-function drawPackets(dyncolumn, table, row) {
-    var row_id = table.column(dyncolumn.name + ':name').index();
-    var match = "td:eq(" + row_id + ")";
-    var data = row.data();
-
-    $(match, row.node()).sparkline(simple_rrd, { 
-        type: "bar",
-        barColor: '#000000',
-        nullColor: '#000000',
-        zeroColor: '#000000'
-    });
-    $(match, row.node()).html(buildRowBtn(row));
-    
-};
 
 // Device Interaction Column.
 kismet_ui.AddDeviceColumn('column_netnomad_hcx', {
     sTitle: 'NetNomad HCX',
     field: 'kismet.device.base',
-    renderfunc: function(data, type, row, meta) {
-        return renderButtons(data, type, row, meta);
+    renderfunc: function (data, type, row, meta) {
+        return renderRows(data, type, row, meta);
     },
-    //drawfunc: function(data, type, row) {
-    //    return drawPackets(data, type, row);
-    //}
+    drawfunc: function(dyncolumn, table, row) {
+        return drawRows(dyncolumn, table, row);
+    }
 });
 
-// Bottom Tab Pane. (WIP)
+// Bottom Tab Pane.
 kismet_ui_tabpane.AddTab({
     id: 'NetNomadTab',
     tabTitle: 'NetNomad',
-    createCallback: function(div) {
-        div.html("<i>NetNomad data here.</i>");
+    createCallback: function (div) {
+        div.html("<i>NetNomad data here.</i><br>");
     }
 });
+/// Write to the Tab and scroll down.
+function writeToTab(data) {
+    $('#NetNomadTab').append(`
+        <b>${timeStamp()}:</b><br>
+        ${data}<br><br>
+    `);
+    $('#NetNomadTab').scrollTop($('#NetNomadTab')[0].scrollHeight);
+}
 
 // Highlight NetNomad susceptible devices. (WIP)
 kismet_ui.AddDeviceRowHighlight({
     name: "NetNomad Highlights",
     description: "Network can be interacted with from NetNomad.",
     priority: 10,
-    defaultcolor: "#33F",
+    defaultcolor: blue,
     defaultenable: true,
     fields: [
         'dot11.device/dot11.device.pmkid_packet'
     ],
-    selector: function(data) {
+    selector: function (data) {
         try {
             return 'dot11.device.pmkid_packet' in data && data['dot11.device.pmkid_packet'] != 0;
         } catch (e) {
@@ -310,7 +282,7 @@ function createSettings(elem) {
         <form id="netnomad_settings_form>
             <label for="dropdown">HCX Interface:</label>
             <br>
-            <select id="hcx_interface_dropdown" name="hcx_interface">
+            <select id="hcx_datasource_dropdown" name="hcx_datasource">
                 <option value="option1">Option 1</option>
                 <option value="option2">Option 2</option>
                 <option value="option3">Option 3</option>
@@ -326,6 +298,15 @@ function createSettings(elem) {
         </form>
     `);
     $('#netnomad_settings_form').submit(saveSettings);
+    $('#hcx_datasource_dropdown').hover(function(event) {
+        const data_sources = pullDataSources();
+        console.debug(JSON.stringify(data_sources));
+        const dropdown = $('#hcx_datasource_dropdown');
+        dropdown.html('');
+        data_sources.forEach(function(key, element) {
+            dropdown.append(`<option value='${element['name']}'>${element['name']}</option>`);
+        });
+    });
 }
 
 /// Save Settings to Global Vars
@@ -335,9 +316,9 @@ function saveSettings(event) {
     const data = new FormData(event.target);
     hcx_interface = data.get('hcx_interface');
     host = data.get('hcx_host_ip');
-    
+
     // Write to the Tab
-    $('#NetNomadTab').html(`
+    writeToTab(`
         <div>
             SETTINGS UPDATED: (WIP)
             <br><br>
@@ -351,6 +332,6 @@ function saveSettings(event) {
 kismet_ui_settings.AddSettingsPane({
     id: 'netnomad_settings',
     listTitle: 'NetNomad Settings',
-    create: function(e) { createSettings(e) },
-    save: function(e) { saveSettings(e) }
+    create: function (e) { createSettings(e) },
+    //save: function (e) { saveSettings(e) }
 });
